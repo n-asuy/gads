@@ -75,7 +75,19 @@ fn update_profile(f: impl FnOnce(&mut Profile)) -> io::Result<PathBuf> {
         )
     })?;
     fs::write(&path, format!("{content}\n"))?;
+    set_owner_only_permissions(&path)?;
     Ok(path)
+}
+
+#[cfg(unix)]
+fn set_owner_only_permissions(path: &PathBuf) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_owner_only_permissions(_path: &PathBuf) -> io::Result<()> {
+    Ok(())
 }
 
 fn profile_path() -> io::Result<PathBuf> {
