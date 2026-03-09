@@ -1,9 +1,9 @@
 [package]
 name = "gads"
 version = "0.0.1"
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
+edition = "2021"
+authors = ["Chronist"]
+license = "MIT"
 description = "Google Ads MCP server & CLI"
 
 [[bin]]
