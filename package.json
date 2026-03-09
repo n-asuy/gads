@@ -1,0 +1,8 @@
+{
+  "name": "gads-dev",
+  "private": true,
+  "scripts": {
+    "build": "bash ./local-build.sh",
+    "release": "bash ./release.sh"
+  }
+}
