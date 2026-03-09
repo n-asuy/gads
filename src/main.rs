@@ -102,6 +102,11 @@ enum Command {
         #[arg(short, long, default_value_t = 200)]
         limit: u32,
     },
+    /// Manage persistent config (developer-token, login-customer-id)
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     /// Execute arbitrary Google Ads mutate request
     Mutate {
         #[command(flatten)]
@@ -197,6 +202,19 @@ enum AdCommand {
     },
 }
 
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Set a config value
+    Set {
+        /// Config key (developer-token, login-customer-id)
+        key: String,
+        /// Value to set (omit to clear)
+        value: Option<String>,
+    },
+    /// Show current config
+    Show,
+}
+
 #[derive(Clone, Copy, ValueEnum)]
 enum DeliveryStatus {
     Enabled,
@@ -222,6 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Command::Customers { ids_only, tree }) => run_customers(ids_only, tree).await,
         Some(Command::Doctor) => run_doctor().await,
         Some(Command::Use { customer_id }) => run_use(customer_id),
+        Some(Command::Config { command }) => run_config(command),
         Some(Command::Search {
             target,
             query,
@@ -618,37 +637,49 @@ async fn run_doctor() -> Result<(), Box<dyn std::error::Error>> {
             doctor_line(
                 DoctorStatus::Ok,
                 "developer token",
-                &format!("set ({})", mask_secret(v.trim())),
+                &format!("env ({})", mask_secret(v.trim())),
             );
         }
-        _ => {
-            has_fail = true;
-            doctor_line(
-                DoctorStatus::Fail,
-                "developer token",
-                "missing GOOGLE_ADS_DEVELOPER_TOKEN",
-            );
-        }
+        _ => match profile::load_developer_token() {
+            Ok(Some(t)) => {
+                doctor_line(
+                    DoctorStatus::Ok,
+                    "developer token",
+                    &format!("profile ({})", mask_secret(&t)),
+                );
+            }
+            _ => {
+                has_fail = true;
+                doctor_line(
+                    DoctorStatus::Fail,
+                    "developer token",
+                    "missing (set env or `gads config set developer-token <TOKEN>`)",
+                );
+            }
+        },
     }
 
     match std::env::var("GOOGLE_ADS_LOGIN_CUSTOMER_ID") {
         Ok(v) if v.trim().is_empty() => doctor_line(
             DoctorStatus::Warn,
             "login customer id",
-            "set but empty (ignored)",
+            "env set but empty (ignored)",
         ),
         Ok(v) => match ids::normalize_customer_id(&v, "GOOGLE_ADS_LOGIN_CUSTOMER_ID") {
-            Ok(id) => doctor_line(DoctorStatus::Ok, "login customer id", &format!("{id}")),
+            Ok(id) => doctor_line(DoctorStatus::Ok, "login customer id", &format!("env ({id})")),
             Err(err) => {
                 has_fail = true;
                 doctor_line(DoctorStatus::Fail, "login customer id", &err.to_string());
             }
         },
-        Err(_) => doctor_line(
-            DoctorStatus::Warn,
-            "login customer id",
-            "unset (direct-account mode only)",
-        ),
+        Err(_) => match profile::load_login_customer_id() {
+            Ok(Some(id)) => doctor_line(DoctorStatus::Ok, "login customer id", &format!("profile ({id})")),
+            _ => doctor_line(
+                DoctorStatus::Warn,
+                "login customer id",
+                "unset (direct-account mode only)",
+            ),
+        },
     }
 
     match profile::load_customer_id() {
@@ -915,6 +946,51 @@ fn run_use(customer_id: Option<String>) -> Result<(), Box<dyn std::error::Error>
         },
     }
 
+    Ok(())
+}
+
+fn run_config(command: ConfigCommand) -> Result<(), Box<dyn std::error::Error>> {
+    match command {
+        ConfigCommand::Set { key, value } => {
+            let has_value = value.is_some();
+            let path = match key.as_str() {
+                "developer-token" => {
+                    let token = value.ok_or("value is required for developer-token")?;
+                    profile::save_developer_token(&token)?
+                }
+                "login-customer-id" => {
+                    let id = value.as_deref();
+                    if let Some(raw) = id {
+                        ids::parse_customer_id_arg(raw)?;
+                    }
+                    profile::save_login_customer_id(id)?
+                }
+                other => {
+                    return Err(format!(
+                        "unknown config key '{other}'. Valid keys: developer-token, login-customer-id"
+                    )
+                    .into());
+                }
+            };
+            if has_value {
+                println!("Saved {key} ({})", path.display());
+            } else {
+                println!("Cleared {key} ({})", path.display());
+            }
+        }
+        ConfigCommand::Show => {
+            let dev_token = profile::load_developer_token()?;
+            let login_id = profile::load_login_customer_id()?;
+            let customer_id = profile::load_customer_id()?;
+
+            println!("developer-token:    {}", match &dev_token {
+                Some(t) => mask_secret(t),
+                None => "(not set)".to_owned(),
+            });
+            println!("login-customer-id:  {}", login_id.as_deref().unwrap_or("(not set)"));
+            println!("customer-id:        {}", customer_id.as_deref().unwrap_or("(not set)"));
+        }
+    }
     Ok(())
 }
 

@@ -7,34 +7,67 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Profile {
     customer_id: Option<String>,
+    developer_token: Option<String>,
+    login_customer_id: Option<String>,
 }
 
 pub fn load_customer_id() -> io::Result<Option<String>> {
+    Ok(load_profile()?.customer_id.filter(|v| !v.trim().is_empty()))
+}
+
+pub fn load_developer_token() -> io::Result<Option<String>> {
+    Ok(load_profile()?
+        .developer_token
+        .filter(|v| !v.trim().is_empty()))
+}
+
+pub fn load_login_customer_id() -> io::Result<Option<String>> {
+    Ok(load_profile()?
+        .login_customer_id
+        .filter(|v| !v.trim().is_empty()))
+}
+
+pub fn save_customer_id(customer_id: &str) -> io::Result<PathBuf> {
+    update_profile(|p| p.customer_id = Some(customer_id.to_owned()))
+}
+
+pub fn save_developer_token(token: &str) -> io::Result<PathBuf> {
+    update_profile(|p| p.developer_token = Some(token.to_owned()))
+}
+
+pub fn save_login_customer_id(id: Option<&str>) -> io::Result<PathBuf> {
+    update_profile(|p| p.login_customer_id = id.map(|s| s.to_owned()))
+}
+
+fn load_profile() -> io::Result<Profile> {
     let path = profile_path()?;
     if !path.exists() {
-        return Ok(None);
+        return Ok(Profile::default());
     }
 
     let content = fs::read_to_string(path)?;
-    let profile: Profile = serde_json::from_str(&content).map_err(|e| {
+    serde_json::from_str(&content).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("failed to parse gads profile: {e}"),
         )
-    })?;
-
-    Ok(profile.customer_id.filter(|id| !id.trim().is_empty()))
+    })
 }
 
-pub fn save_customer_id(customer_id: &str) -> io::Result<PathBuf> {
+fn update_profile(f: impl FnOnce(&mut Profile)) -> io::Result<PathBuf> {
     let path = profile_path()?;
+    let mut profile = if path.exists() {
+        let content = fs::read_to_string(&path)?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Profile::default()
+    };
+
+    f(&mut profile);
+
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-
-    let profile = Profile {
-        customer_id: Some(customer_id.to_owned()),
-    };
     let content = serde_json::to_string_pretty(&profile).map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidData,

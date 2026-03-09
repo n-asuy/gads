@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::auth::AuthProvider;
 use crate::error::GoogleAdsError;
 use crate::ids;
+use crate::profile;
 
 const API_VERSION: &str = "v21";
 const BASE_URL: &str = "https://googleads.googleapis.com";
@@ -26,12 +27,11 @@ impl GoogleAdsClient {
     pub async fn new_with_login_customer_id_override(
         login_customer_id_override: Option<Option<String>>,
     ) -> Result<Self, GoogleAdsError> {
-        let developer_token = std::env::var("GOOGLE_ADS_DEVELOPER_TOKEN")
-            .map_err(|_| GoogleAdsError::MissingEnvVar("GOOGLE_ADS_DEVELOPER_TOKEN".into()))?;
+        let developer_token = resolve_developer_token()?;
 
         let login_customer_id = match login_customer_id_override {
             Some(value) => value,
-            None => resolve_login_customer_id_from_env()?,
+            None => resolve_login_customer_id()?,
         };
         let quota_project_id = resolve_quota_project_id();
 
@@ -188,17 +188,36 @@ fn normalize_mutate_service(service: &str) -> Result<String, GoogleAdsError> {
     Ok(trimmed.to_owned())
 }
 
-fn resolve_login_customer_id_from_env() -> Result<Option<String>, GoogleAdsError> {
-    let value = std::env::var("GOOGLE_ADS_LOGIN_CUSTOMER_ID").ok();
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    if value.trim().is_empty() {
-        return Ok(None);
+fn resolve_developer_token() -> Result<String, GoogleAdsError> {
+    if let Ok(value) = std::env::var("GOOGLE_ADS_DEVELOPER_TOKEN") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_owned());
+        }
     }
 
-    ids::normalize_customer_id(&value, "GOOGLE_ADS_LOGIN_CUSTOMER_ID").map(Some)
+    if let Ok(Some(token)) = profile::load_developer_token() {
+        return Ok(token);
+    }
+
+    Err(GoogleAdsError::MissingEnvVar(
+        "GOOGLE_ADS_DEVELOPER_TOKEN (or set via `gads config set developer-token <TOKEN>`)".into(),
+    ))
+}
+
+fn resolve_login_customer_id() -> Result<Option<String>, GoogleAdsError> {
+    if let Ok(value) = std::env::var("GOOGLE_ADS_LOGIN_CUSTOMER_ID") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return ids::normalize_customer_id(trimmed, "GOOGLE_ADS_LOGIN_CUSTOMER_ID").map(Some);
+        }
+    }
+
+    if let Ok(Some(id)) = profile::load_login_customer_id() {
+        return ids::normalize_customer_id(&id, "profile:login_customer_id").map(Some);
+    }
+
+    Ok(None)
 }
 
 fn resolve_quota_project_id() -> Option<String> {
