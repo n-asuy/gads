@@ -299,6 +299,7 @@ async fn run_login() -> Result<(), Box<dyn std::error::Error>> {
     let scopes = &[
         "openid",
         "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/adwords",
     ];
 
