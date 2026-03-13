@@ -85,13 +85,13 @@ mv gads.zip "npx-cli/dist/$PLATFORM_DIR/gads.zip"
 echo "Packing npm package..."
 cd npx-cli
 npm version "$VERSION" --no-git-tag-version --allow-same-version 2>/dev/null || true
-rm -f gads-*.tgz
+rm -f lostf-gads-*.tgz
 npm pack --quiet
 cd ..
 
 echo ""
 echo "=== Build complete ==="
-echo "  npx-cli/gads-${VERSION}.tgz"
+echo "  npx-cli/lostf-gads-${VERSION}.tgz"
 echo ""
 echo "Install locally:"
-echo "  npm install -g ./crates/gads/npx-cli/gads-${VERSION}.tgz"
+echo "  npm install -g ./crates/gads/npx-cli/lostf-gads-${VERSION}.tgz"

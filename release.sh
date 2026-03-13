@@ -24,7 +24,7 @@ sed -i '' "s/^version = \"${CURRENT}\"/version = \"${NEW_VERSION}\"/" Cargo.toml
 bash local-build.sh
 
 VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-TGZ_FILE="npx-cli/gads-${VERSION}.tgz"
+TGZ_FILE="npx-cli/lostf-gads-${VERSION}.tgz"
 
 if [ ! -f "$TGZ_FILE" ]; then
   echo "Error: $TGZ_FILE not found"
@@ -45,7 +45,7 @@ if [ -n "$R2_ENDPOINT" ] && [ -n "$R2_BUCKET" ] && [ -n "$R2_PUBLIC_URL" ]; then
   done
 
   aws s3 cp "$TGZ_FILE" \
-    "s3://$R2_BUCKET/releases/gads-${VERSION}.tgz" \
+    "s3://$R2_BUCKET/releases/lostf-gads-${VERSION}.tgz" \
     --endpoint-url "$R2_ENDPOINT"
 
   echo "{\"latest\": \"$VERSION\"}" | aws s3 cp - \
@@ -68,10 +68,10 @@ fi
 # Publish to npm
 echo ""
 echo "=== Publishing to npm ==="
-npm publish "./$TGZ_FILE" || {
-  echo "(npm publish failed — run manually: npm publish ./$TGZ_FILE)"
+npm publish "./$TGZ_FILE" --access public || {
+  echo "(npm publish failed — run manually: npm publish ./$TGZ_FILE --access public)"
 }
 
 echo ""
 echo "=== Release complete ==="
-echo "  npm install -g gads"
+echo "  npm install -g @lostf/gads"
