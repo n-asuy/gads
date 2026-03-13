@@ -4,7 +4,7 @@
 const { execSync } = require("child_process");
 
 // Public bucket URL for binary distribution (not a secret)
-const R2_PUBLIC_URL = "https://pub-xxxxx.r2.dev";
+const R2_PUBLIC_URL = "https://pub-2f89aa8de0ba4782a25bdce332a03b16.r2.dev";
 
 function getEffectiveArch() {
   const platform = process.platform;
