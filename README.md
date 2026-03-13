@@ -1,100 +1,110 @@
 # gads
 
-Google Ads API の MCP サーバー & CLI。Rust 実装。
+A Google Ads API MCP server & CLI written in Rust.
 
-[googleads/gads](https://github.com/googleads/gads) (Python) を参考に、REST API + rmcp で再実装。
+Calls the Google Ads REST API (v21) directly via `reqwest` — no gRPC dependency.
+Inspired by [googleads/gads](https://github.com/googleads/gads) (Python).
+
+## Security Notice
+
+gads authenticates through **Google Cloud Application Default Credentials (ADC)**.
+Once you run `gcloud auth application-default login`, the resulting credential file
+(`~/.config/gcloud/application_default_credentials.json`) is a **machine-wide, long-lived
+OAuth2 refresh token**. Any process on your machine — not just gads — can read this file
+and obtain access tokens for every scope you authorized, including the Google Ads API
+and any other Google Cloud APIs.
+
+**Use gads at your own risk.** You are responsible for securing your local credentials
+and understanding the implications of ADC-based authentication.
+
+See [Roadmap](#roadmap) for planned mitigations.
 
 ## Setup
 
-### 1. Google Cloud プロジェクトの準備
+### 1. Google Cloud Project
 
 ```bash
-# gcloud CLI がなければインストール
+# Install gcloud CLI if needed
 # https://cloud.google.com/sdk/docs/install
 
-# ログイン & プロジェクト設定
 gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-### 2. Google Ads API の有効化
+### 2. Enable the Google Ads API
 
 ```bash
 gcloud services enable googleads.googleapis.com
 ```
 
-Google Cloud Console からも可能:
-[APIs & Services](https://console.cloud.google.com/apis/library/googleads.googleapis.com) > 「Google Ads API」を有効化。
+Or enable via [Cloud Console](https://console.cloud.google.com/apis/library/googleads.googleapis.com).
 
-### 3. Developer Token の取得
+### 3. Obtain a Developer Token
 
-1. [Google Ads](https://ads.google.com/) にログイン
-2. ツールと設定 > 設定 > API センター
-3. Developer Token を取得 (初回は Test Account アクセスのみ。本番は申請が必要)
+1. Sign in to [Google Ads](https://ads.google.com/)
+2. Tools & Settings > Setup > API Center
+3. Copy the developer token (initial access is test-account only; production requires approval)
 
-詳細: https://developers.google.com/google-ads/api/docs/get-started/dev-token
+Details: https://developers.google.com/google-ads/api/docs/get-started/dev-token
 
-### 4. 認証情報の設定
+### 4. Authentication
 
-#### 方法 A: Application Default Credentials (推奨)
+#### Option A: Application Default Credentials (recommended)
 
 ```bash
 gcloud auth application-default login \
   --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/adwords"
 ```
 
-これで `~/.config/gcloud/application_default_credentials.json` が作成される。gads が自動検出する。
+This creates `~/.config/gcloud/application_default_credentials.json`, which gads discovers automatically.
 
-#### 方法 B: サービスアカウント
+#### Option B: Service Account
 
 ```bash
-# サービスアカウントを作成
 gcloud iam service-accounts create gads-sa \
   --display-name="gads service account"
 
-# キーを発行
 gcloud iam service-accounts keys create sa-key.json \
   --iam-account=gads-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
 
-# 環境変数でパスを指定
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json
 ```
 
-サービスアカウントを Google Ads アカウントに招待する必要がある:
-Google Ads > ツールと設定 > アクセスとセキュリティ > サービスアカウントのメールアドレスを追加。
+You must also invite the service account email in Google Ads:
+Tools & Settings > Access & Security > add the service account email.
 
-### 5. 環境変数の設定
+### 5. Environment Variables
 
 ```bash
 export GOOGLE_ADS_DEVELOPER_TOKEN="your-developer-token"
 
-# MCC (マネージャーアカウント) 経由でアクセスする場合のみ必要
+# Required only when accessing accounts via an MCC (Manager account)
 export GOOGLE_ADS_LOGIN_CUSTOMER_ID="1234567890"
 
-# ADC(user credentials) 利用時の quota project（403対策）
+# Quota project for ADC user credentials (prevents 403)
 export GOOGLE_CLOUD_QUOTA_PROJECT="your-gcp-project-id"
 ```
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GOOGLE_ADS_DEVELOPER_TOKEN` | Yes | Google Ads API developer token |
-| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | No | MCC の顧客 ID (ハイフンなし) |
-| `GOOGLE_CLOUD_QUOTA_PROJECT` | No | ADC(user credentials) 使用時に `x-goog-user-project` へ設定する quota project |
-| `GOOGLE_APPLICATION_CREDENTIALS` | No | サービスアカウント JSON キーのパス。未設定時は ADC 自動検出 |
+| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | No | MCC customer ID (no hyphens) |
+| `GOOGLE_CLOUD_QUOTA_PROJECT` | No | Sets `x-goog-user-project` header for ADC user credentials |
+| `GOOGLE_APPLICATION_CREDENTIALS` | No | Path to service account JSON key. Falls back to ADC auto-discovery |
 
-### 6. 動作確認
+### 6. Verify
 
 ```bash
 cargo build -p gads --release
 
-# アクセス可能なアカウント一覧で認証を確認
+# List accessible accounts to confirm authentication
 gads customers
 ```
 
 ## Build
 
 ```bash
-# Build host binary package + npx tgz
+# Build host binary + npx tgz
 bun run build
 ```
 
@@ -107,48 +117,45 @@ bun run release
 
 ## CLI Usage
 
-引数なし、または `serve` で MCP サーバーとして起動。サブコマンドで直接 API を叩くことも可能。
+Running without arguments (or with `serve`) starts the MCP server.
+Subcommands invoke the API directly.
 
 ```
 gads [COMMAND]
 
 Commands:
-  serve      MCP サーバー起動 (stdio transport) [default]
-  doctor     認証/設定/API接続の診断
-  customers  アクセス可能な顧客を MCC/ACCOUNT 付きで表示
-  use        デフォルト customer ID の保存/表示
-  search     GAQL クエリ実行
-  campaign   キャンペーン操作（list/status）
-  adgroup    広告グループ操作（list/status）
-  ad         広告操作（list/status）
-  creatives  広告クリエイティブ一覧（見出し/説明文/URL）
-  mutate     任意 mutate リクエスト実行（作成/更新/削除）
+  serve      Start MCP server (stdio transport) [default]
+  login      Authenticate via gcloud ADC with Google Ads API scope
+  doctor     Diagnose auth, config, and API connectivity
+  customers  List accessible customers with MCC/ACCOUNT labels
+  use        Save/show default customer ID
+  search     Execute a GAQL query
+  campaign   Campaign operations (list / status)
+  adgroup    Ad group operations (list / status)
+  ad         Ad operations (list / status)
+  creatives  List ad creatives (headlines, descriptions, URLs)
+  mutate     Execute arbitrary mutate requests (create/update/delete)
+  config     Manage persistent config (developer-token, login-customer-id)
 ```
 
 ### customers
 
 ```bash
-# MCC / ACCOUNT を判定して表示
 gads customers
-
-# MCC 配下のツリー表示（LOGIN/DEFAULT マーカー付き）
 gads customers --tree
-
-# 旧来どおり ID のみ欲しい場合
 gads customers --ids-only
 ```
 
 ### doctor
 
 ```bash
-# 認証と設定を診断（問題があれば非0終了）
 gads doctor
 ```
 
 ### search
 
 ```bash
-# 事前にデフォルト customer ID を保存しておくと -c を省略できる
+# Save a default customer ID first (optional)
 gads use 1234567890
 
 # Raw GAQL
@@ -156,19 +163,17 @@ gads search \
   -q "SELECT campaign.id, campaign.name FROM campaign" \
   -l 10
 
-# One-shot override: login-customer-id をこのコマンドだけ指定
+# Override login-customer-id for this command only
 gads search \
   --customer-id 1234567890 \
   --login-customer-id 9988776655 \
-  -q "SELECT campaign.id, campaign.name FROM campaign" \
-  -l 10
+  -q "SELECT campaign.id, campaign.name FROM campaign"
 
-# One-shot override: login-customer-id をこのコマンドだけ無効化
+# Disable login-customer-id for this command
 gads search \
   --customer-id 1234567890 \
   --no-login-customer-id \
-  -q "SELECT campaign.id, campaign.name FROM campaign" \
-  -l 10
+  -q "SELECT campaign.id, campaign.name FROM campaign"
 
 # Shorthand: resource + fields
 gads search \
@@ -177,7 +182,7 @@ gads search \
   -l 10
 ```
 
-出力は JSON 配列。`jq` でパイプ可能。
+Output is a JSON array. Pipe to `jq`:
 
 ```bash
 gads search -c 1234567890 -q "SELECT campaign.name FROM campaign" | jq '.[].["campaign.name"]'
@@ -186,55 +191,40 @@ gads search -c 1234567890 -q "SELECT campaign.name FROM campaign" | jq '.[].["ca
 ### use
 
 ```bash
-# デフォルト customer ID を保存
-gads use 1234567890
-
-# 現在保存されている customer ID を表示
-gads use
+gads use 1234567890   # save default customer ID
+gads use              # show current default
 ```
 
 ### campaign / adgroup / ad / creatives
 
 ```bash
-# キャンペーン一覧（-c 省略時は gads use の保存値を使用）
 gads campaign list -l 100
-
-# 広告グループ一覧
 gads adgroup list -l 200
-
-# 広告一覧
 gads ad list -l 200
-
-# クリエイティブ一覧（RSA 見出し・説明文・最終URL）
 gads creatives -l 200
 
-# MCC ヘッダをこのコマンドだけ無効化
+# Disable MCC header for this command
 gads campaign --no-login-customer-id list
 ```
 
-### 配信ステータス更新（ENABLED / PAUSED）
+### Status updates (ENABLED / PAUSED)
 
 ```bash
-# キャンペーンを配信開始
 gads campaign status --campaign-id 123456789 --status ENABLED
-
-# 広告グループを一時停止
 gads adgroup status --ad-group-id 987654321 --status PAUSED
-
-# 広告（ad_group_id + ad_id）を配信開始
 gads ad status --ad-group-id 987654321 --ad-id 1122334455 --status ENABLED
 
-# validate only（実際には反映しない）
+# Validate only (dry run)
 gads campaign status --campaign-id 123456789 --status ENABLED --validate-only
 ```
 
-### mutate（任意オペレーション）
+### mutate
 
-`mutate` は Google Ads の `customers/{customer_id}/{service}:mutate` を直接実行する。  
-作成系（campaign/adgroup/ad 作成）を含む任意オペレーションに使える。
+Calls `customers/{customer_id}/{service}:mutate` directly.
+Supports any create/update/delete operation.
 
 ```bash
-# インライン JSON
+# Inline JSON
 gads mutate \
   --service campaigns \
   --body '{
@@ -247,7 +237,7 @@ gads mutate \
     }]
   }'
 
-# ファイル指定 + validate only
+# From file + validate only
 gads mutate \
   --service adGroupAds \
   --body-file ./mutate-body.json \
@@ -276,27 +266,43 @@ gads mutate \
 
 | Tool | Description |
 |------|-------------|
-| `search` | GAQL クエリで Google Ads データを取得。全リソースのフィールド参照を埋め込み済み |
-| `list_accessible_customers` | 認証ユーザーがアクセス可能な顧客 ID 一覧 |
+| `search` | Execute GAQL queries against Google Ads. Includes embedded field reference for all v21 resources |
+| `list_accessible_customers` | List customer IDs accessible by the authenticated user |
 
 ## Architecture
 
 ```
 src/
-  main.rs      — エントリ (CLI parser + MCP serve)
-  server.rs    — MCP ツール登録 + ServerHandler
-  client.rs    — Google Ads REST API クライアント
-  auth.rs      — gcp_auth による ADC トークン取得
-  query.rs     — GAQL クエリビルダー
-  format.rs    — searchStream レスポンスのフラット化
-  error.rs     — 統一エラー型
-  gaql_resources.json — GAQL フィールド参照 (compile-time embed)
+  main.rs      — Entry point (CLI parser + MCP serve)
+  server.rs    — MCP tool registration + ServerHandler
+  client.rs    — Google Ads REST API client
+  auth.rs      — ADC token acquisition via gcp_auth
+  query.rs     — GAQL query builder
+  format.rs    — searchStream response flattening
+  error.rs     — Unified error type
+  gaql_resources.json — GAQL v21 field reference (compile-time embed)
 ```
-
-Google Ads API v21 の REST エンドポイントを `reqwest` で直接呼び出す。gRPC (`googleads-rs`) は不使用。
 
 ## Test
 
 ```bash
 cargo test -p gads
 ```
+
+## Roadmap
+
+- **Scoped credential isolation** — Current ADC credentials grant access to all authorized
+  scopes machine-wide. Investigate per-tool credential isolation (e.g., short-lived tokens
+  with scope restricted to `adwords` only, or a proxy that mediates token exchange) so that
+  a compromised process cannot leverage gads credentials for unrelated GCP APIs.
+- **Token broker / proxy architecture** — Instead of reading ADC directly, gads could
+  request tokens from a local broker that enforces scope, audience, and lifetime constraints.
+  This would prevent other processes from reusing the raw refresh token.
+- **Credential storage hardening** — Explore alternatives to the plaintext ADC JSON file
+  (e.g., OS keychain integration, encrypted-at-rest profiles).
+- **Audit logging** — Log all API calls with timestamps and caller context to detect
+  unauthorized usage of shared credentials.
+
+## License
+
+MIT
